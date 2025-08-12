@@ -1,29 +1,62 @@
-from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.pagination import PageNumberPagination
+from rest_framework import generics
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
 from .models import Flower
-from .serializers import FlowerSerializer
-from django.db.models import Q
+from .serializers import RegisterSerializer, LoginSerializer, FlowerSerializer, ProfileSerializer
 
 
-class ListCreateApiView(APIView):
+class RegisterApi(APIView):
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({
+                'message': 'Foydalanuvchi yaratildi',
+                'token': token.key
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LoginApi(ObtainAuthToken):
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data,
+                                           context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'username': user.username
+        }, status=status.HTTP_200_OK)
+
+
+
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        request.user.auth_token.delete()
+        return Response({"detail": "Chiqish muvaffaqiyatli!"}, status=status.HTTP_200_OK)
+
+
+class FlowerListCreateView(generics.ListCreateAPIView):
+    queryset = Flower.objects.all()
+    serializer_class = FlowerSerializer
+
+
+class FlowerDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Flower.objects.all()
+    serializer_class = FlowerSerializer
+
+
+class ProfileApi (APIView):
     def get(self, request):
-        flowers = Flower.objects.all()
-
-        name = request.GET.get('name')
-        description = request.GET.get('description')
-        if name:
-            flowers = flowers.filter(name=name)
-        if description:
-            flowers = flowers.filter(description=description)
-        search = request.GET.get('search')
-        if search:
-            flowers = flowers.filter(Q(name__icontains=search) | Q(description__icontains=search))
-
-        paginator = PageNumberPagination()
-        paginator.page_size = 2
-        result_page = paginator.paginate_queryset(flowers, request)
-
-        serializer = FlowerSerializer(result_page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        serializer = ProfileSerializer(request.user)
+        return Response ({
+        'data': serializer.data,
+        'status': status.HTTP_200_OK
+        })
